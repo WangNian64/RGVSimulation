@@ -38,7 +38,7 @@ namespace RGVSimulation
             //初始化小车和任务
             foreach (RGV rgv in RGVs)
             {
-                GlobalParas.allAGVs.Add(rgv);
+                GlobalParas.allRGVs.Add(rgv);
                 GlobalParas.allocableRGVs.Add(rgv);
             }
             foreach (Task task in Tasks)

@@ -59,7 +59,7 @@ namespace RGVSimulation.Tools
             }
             return new Vector2((v1.x + v2.x) / 2, (v1.y + v2.y) / 2);
         }
-        
+        //连两个向量的距离
         public static double Distance(Vector2 v1, Vector2 v2)
         {
             if (v1 == null || v2 == null)
@@ -87,7 +87,6 @@ namespace RGVSimulation.Tools
             double dist = Vector2.Distance(v1, v2);
             return dist <= speed * GlobalParas.frameTime;
         }
-
         public override string ToString()
         {
             return "x:" + x + ", y:" + y;

@@ -17,7 +17,7 @@ namespace RGVSimulation.Controller
         private ShortPath shortPath;//小车到某个点的最短路径数据
 
         public bool speedChangeable;//速度是否可变
-        public RGVMoveController(RGV RGV, Task task, double moveSpeed,
+        public RGVMoveController(Task task, RGV RGV, double moveSpeed,
             double safeDis)
         {
             this.RGV = RGV;
@@ -30,6 +30,13 @@ namespace RGVSimulation.Controller
         //模拟update函数
         public void SimuUpdate()
         {
+            ClearShortPath();
+            SimuCarMovement();
+            SimuAvoidCrash();
+        }
+        //清空shortPath
+        public void ClearShortPath()
+        {
             if (shortPath != null)
             {
                 if (shortPath.vertexList[0].index == shortPath.vertexList[1].index)
@@ -37,8 +44,6 @@ namespace RGVSimulation.Controller
                     shortPath = null;
                 }
             }
-            SimuCarMovement();
-            SimuAvoidCrash();
         }
         //模拟小车运动
         public void SimuCarMovement()
@@ -169,7 +174,7 @@ namespace RGVSimulation.Controller
                     //模拟旋转运动
                     SimuRotateAround((RGV.edge as CurveEdge).radius, (RGV.edge as CurveEdge).center, RGV.speed * GlobalParas.frameTime);
                 }
-                else if (RGV.edge is StraightEdge)
+                else if (RGV.edge is StraightEdge)//直线
                 {
                     //模拟直线运动
                     SimuMoveTowards(vertex.pos, RGV.speed * GlobalParas.frameTime);
@@ -203,16 +208,15 @@ namespace RGVSimulation.Controller
         //运动到某个位置
         public void gotoPos(Vector2 position)
         {
-            position.y = RGV.pos.y;
             if (!Vector2.IsClose(position, RGV.pos, RGV.speed))
             {
                 //判断车在直线还是曲线
-                if (RGV.edge is StraightEdge)
+                if (RGV.edge is CurveEdge)
                 {
                     //模拟旋转运动
                     SimuRotateAround((RGV.edge as CurveEdge).radius, (RGV.edge as CurveEdge).center, RGV.speed * GlobalParas.frameTime);
                 }
-                else if (RGV.edge is CurveEdge)
+                else if (RGV.edge is StraightEdge)
                 {
                     //模拟直线运动
                     SimuMoveTowards(position, RGV.speed * GlobalParas.frameTime);
@@ -250,6 +254,7 @@ namespace RGVSimulation.Controller
                 speedChangeable = true;
                 RGV.speed = 0.0f;
                 task = null;//清空任务
+                MainDispatcher.unfinishNum--;//总任务数目-1
                 shortPath = null;
                 unloadAccumuTime = 0;
             }
@@ -259,13 +264,13 @@ namespace RGVSimulation.Controller
         public void SimuRotateAround(double curveRadius, Vector2 rotateCenter, double lineSpeed)
         {
             double angularSpeed = lineSpeed / curveRadius;//计算角速度 radian
-                                                         //deg是角度，radian是弧度
-                                                         //累计的角度（每次进入曲线轨道，都要给小车一个新的初始角度）
+            //deg是角度，radian是弧度
+            //累计的角度（每次进入曲线轨道，都要给小车一个新的初始角度）
             RGV.angled += (MathTool<double>.Rad2Deg * angularSpeed) % 360;
             double posX = rotateCenter.x + curveRadius * MathF.Sin((float)(RGV.angled * MathTool<double>.Deg2Rad));
             double posy = rotateCenter.y + curveRadius * MathF.Cos((float)(RGV.angled * MathTool<double>.Deg2Rad));
             //更新pos
-            RGV.pos = new Vector2(posX, RGV.pos.y);
+            RGV.pos = new Vector2(posX, posy);
         }
         //模拟小车的直线运动
         public void SimuMoveTowards(Vector2 endPos, double speed)
@@ -302,40 +307,33 @@ namespace RGVSimulation.Controller
             }
         }
         //判断两车前后关系
-        public bool isFront(RGV targetCar)
+        public bool isFront(RGV targetRGV)
         {
             //本车到目标车的路径距离，目标车到本车的路径距离
             double s2t, t2s;
             s2t = t2s = 0.0f;
-            //车所在边
+            //车所在的边
             Vertex selfVertex1 = GlobalParas.trailerGraph.vertexes[RGV.edge.vertex1.index];
             Vertex selfVertex2 = GlobalParas.trailerGraph.vertexes[RGV.edge.vertex2.index];
-            Vertex targetVertex1 = GlobalParas.trailerGraph.vertexes[targetCar.edge.vertex1.index];
-            Vertex targetVertex2 = GlobalParas.trailerGraph.vertexes[targetCar.edge.vertex2.index];
-            if (targetCar.edge.Equals(RGV.edge))//2车在同一条边上
+            Vertex targetVertex1 = GlobalParas.trailerGraph.vertexes[targetRGV.edge.vertex1.index];
+            Vertex targetVertex2 = GlobalParas.trailerGraph.vertexes[targetRGV.edge.vertex2.index];
+            if (targetRGV.edge.Equals(RGV.edge))//2车在同一条边上
             {
-                t2s = Vector2.Distance(targetCar.pos, targetVertex2.pos);
+                t2s = Vector2.Distance(targetRGV.pos, targetVertex2.pos);
                 s2t = Vector2.Distance(RGV.pos, selfVertex2.pos);
             }
             else//不在同一条边，分别计算两车经过轨道到达彼此的距离，距离短的那个在后面
             {
-                s2t += Vector2.Distance(targetCar.pos, targetVertex2.pos);
+                s2t += Vector2.Distance(targetRGV.pos, targetVertex2.pos);
                 t2s += Vector2.Distance(RGV.pos, selfVertex2.pos);
 
-                s2t += GlobalParas.trailerGraph.shortPathsMap[RGV.edge.vertex2.index, targetCar.edge.vertex1.index].length;
-                t2s += GlobalParas.trailerGraph.shortPathsMap[targetCar.edge.vertex2.index, RGV.edge.vertex1.index].length;
+                s2t += GlobalParas.trailerGraph.shortPathsMap[RGV.edge.vertex2.index, targetRGV.edge.vertex1.index].length;
+                t2s += GlobalParas.trailerGraph.shortPathsMap[targetRGV.edge.vertex2.index, RGV.edge.vertex1.index].length;
 
-                s2t += Vector2.Distance(targetCar.pos, targetVertex1.pos);
+                s2t += Vector2.Distance(targetRGV.pos, targetVertex1.pos);
                 t2s += Vector2.Distance(RGV.pos, selfVertex1.pos);
             }
-            if (s2t <= t2s)
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+            return s2t <= t2s ? true : false;
         }
         //速度恢复
         public void SpeedRecover()
@@ -353,11 +351,11 @@ namespace RGVSimulation.Controller
             //}
         }
         //模拟在碰撞时修改小车速度
-        public void SimuChangeSpeed(RGV targetCar)
+        public void SimuChangeSpeed(RGV targetRGV)
         {
             if (speedChangeable)
             {
-                bool isfront = isFront(targetCar);
+                bool isfront = isFront(targetRGV);
                 if (isfront)
                 {
                     if (shortPath == null)//只有可能在empty时发生，此时前车需要先获得路径
@@ -369,7 +367,7 @@ namespace RGVSimulation.Controller
                 }
                 else
                 {
-                    RGV.speed = targetCar.speed;
+                    RGV.speed = targetRGV.speed;
                     speedChangeable = false;
                 }
             }

@@ -14,10 +14,10 @@ namespace RGVSimulation.Varibles
         public static TrailerGraph trailerGraph;//轨道对应的有向图
         //任务相关参数
         public static List<Task> allTasks = new List<Task>();//总任务列表
-        public static List<RGV> allAGVs = new List<RGV>();//所有小车
+        public static List<RGV> allRGVs = new List<RGV>();//所有小车
         public static List<RGV> allocableRGVs = new List<RGV>();//所有可分配的车的信息数组
         public static List<Task> allocableTasks = new List<Task>();//所有可分配的任务
-        public static Dictionary<RGV, Task> UnAllocableMatch = new Dictionary<RGV, Task>();//存储当前所有已经不可再分配的Car-Task对
+        public static Dictionary<Task, RGV> UnAllocableMatch = new Dictionary<Task, RGV>();//存储当前所有已经不可再分配的Car-Task对
 
         public static double safeDis = 2.0f;//安全距离
         public static double moveSpeed = 5.0f;//规定所有RGV的移动速度，加速的话可以不一样

@@ -2,309 +2,90 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using RGVSimulation.Trailer;
 using RGVSimulation.Varibles;
 using RGVSimulation.Tools;
 namespace RGVSimulation.Controller
 {
     public struct DispatchResult
     {
-        public Dictionary<RGV, Task> minMatch;
+        public Dictionary<Task, RGV> minMatch;
         public double minTime;
     }
     public class MainDispatcher
     {
-        ////实际分配的车和任务
-        //private List<RGV> trueRGVs;
-        //private List<Task> trueTasks;
-
-        //所有的RGVMoveController
+        static RGV[] tempRGVs = new RGV[100];//辅助计算排列组合
         public static RGVMoveController[] RMCList;
-        List<RGV> trueRGVs;
-        List<Task> trueTasks;
         DispatchResult dispatchResult;
 
+        public static int unfinishNum;
         public DispatchResult DispatchRGV()
         {
             InitialParas();
-            if (TrailerNotEmpty())
+            if (TaskRGVNotEmpty())
             {
-                //Task>=RGV, 从任务队列中取出小车数目的任务，再进行全排列
-                if (GlobalParas.allocableTasks.Count >= GlobalParas.allocableRGVs.Count)
+                //排列组合算法失效了，现在的数目是RGV^Task
+                List<Dictionary<Task, RGV>> dispatchList = new List<Dictionary<Task, RGV>>();
+                getDispatchList(ref dispatchList, GlobalParas.allocableRGVs.ToArray(), GlobalParas.allocableTasks.ToArray(),
+                    GlobalParas.allocableRGVs.Count - 1, GlobalParas.allocableTasks.Count - 1);
+                foreach (Dictionary<Task, RGV> matchDic in dispatchList)
                 {
-                    List<Dictionary<RGV, Task>> matchList = new List<Dictionary<RGV, Task>>(); //匹配Dic
-                    for (int i = 0; i < GlobalParas.allocableRGVs.Count; i++)
+                    //对于已经分配了任务的RGV也要加进match
+                    foreach (KeyValuePair<Task, RGV> kvp in GlobalParas.UnAllocableMatch)
                     {
-                        trueTasks.Add(GlobalParas.allocableTasks.ElementAt(i));
-                    }
-                    trueRGVs = GlobalParas.allocableRGVs;
-                    //得到对应的匹配组合（car和task一样多）
-                    getMatchList(ref matchList, trueRGVs.ToArray(), trueTasks, 0, trueRGVs.Count);
-
-                    //matchList的每一项都应该包括UnAllocableMatch
-                    //每次重新分配，不仅计算所有可分配的Car-Task，也要计算不可分配的Car-Task
-                    foreach (Dictionary<RGV, Task> matchDic in matchList)
-                    {
-                        foreach (KeyValuePair<RGV, Task> kvp in GlobalParas.UnAllocableMatch)
-                        {
-                            matchDic.Add(kvp.Key, kvp.Value);//进行深拷贝
-                        }
-                    }
-                    dispatchResult.minTime = getMinMatch(matchList, ref dispatchResult.minMatch);
-                }
-                else//Task<RGV，会有空闲的小车，此时需要进行（多选少），再进行全排列
-                {
-                    //所有任务都要分配
-                    foreach (Task t in GlobalParas.allocableTasks)
-                    {
-                        trueTasks.Add(t);
-                    }
-                    List<RGV[]> carLists = MathTool<RGV>.GetCombination(GlobalParas.allocableRGVs.ToArray(), trueTasks.Count);
-
-                    dispatchResult.minTime = GlobalParas.INFINITY;
-                    foreach (RGV[] carList in carLists)
-                    {
-                        List<Dictionary<RGV, Task>> aMatchList = new List<Dictionary<RGV, Task>>();
-                        getMatchList(ref aMatchList, carList, trueTasks, 0, carList.Length);
-                        //matchList的每一项都应该包括unAllocableMatch
-                        foreach (Dictionary<RGV, Task> matchDic in aMatchList)
-                        {
-                            foreach (KeyValuePair<RGV, Task> kvp in GlobalParas.UnAllocableMatch)
-                            {
-                                matchDic.Add(kvp.Key, kvp.Value);//进行深拷贝
-                            }
-                        }
-                        //计算matchList中的最小匹配minMatch
-                        Dictionary<RGV, Task> aMinMatch = new Dictionary<RGV, Task>();
-                        double aMinTime = getMinMatch(aMatchList, ref aMinMatch);
-                        //aMinTime只是局部最小，还要比较多个matchList的最小值
-                        if (aMinTime < dispatchResult.minTime)
-                        {
-                            dispatchResult.minTime = aMinTime;
-                            dispatchResult.minMatch = aMinMatch;
-                        }
+                        matchDic.Add(kvp.Key, kvp.Value);//进行深拷贝
                     }
                 }
+                //计算最佳match和最短时间
+                dispatchResult.minTime = getMinMatch(dispatchList, ref dispatchResult.minMatch);
             }
             return dispatchResult;
         }
-        //// Update is called once per frame
-        //void FixedUpdate()
-        //{
-        //    trueRGVs = new List<RGV>();
-        //    trueTasks = new List<Task>();
-        //    //重新分配任务，先清空已经分配的任务
-        //    foreach (RGV car in GlobalParas.RGVList)
-        //    {
-        //        CarController cc = GameObject.Find(car.carName).gameObject.GetComponent<CarController>();
-        //        if (cc.carMessage.workState == WorkState.Empty || cc.carMessage.workState == WorkState.WayToLoad)
-        //        {
-        //            cc.task = null;
-        //        }
-        //    }
-        //    if (GlobalParas.allocableTasks.Count > 0 && GlobalParas.allocableRGVs.Count > 0)
-        //    {
-        //        Dictionary<RGV, Task> minMatch = new Dictionary<RGV, Task>();        //matchList中的最小匹配minMatch
-        //                                                                             //Task>=RGV, 从任务队列中取出小车数目的任务，再进行全排列
-        //        if (GlobalParas.allocableTasks.Count >= GlobalParas.allocableRGVs.Count)
-        //        {
-        //            List<Dictionary<RGV, Task>> matchList = new List<Dictionary<RGV, Task>>(); //匹配Dic
-        //            for (int i = 0; i < GlobalParas.allocableRGVs.Count; i++)
-        //            {
-        //                trueTasks.Add(GlobalParas.allocableTasks.ElementAt(i));
-        //            }
-        //            trueRGVs = GlobalParas.allocableRGVs;
-        //            //得到对应的匹配组合（car和task一样多）
-        //            getMatchList(ref matchList, trueRGVs.ToArray(), trueTasks, 0, trueRGVs.Count);
-
-        //            //matchList的每一项都应该包括unAllocableMatch
-        //            foreach (Dictionary<RGV, Task> matchDic in matchList)
-        //            {
-        //                foreach (KeyValuePair<RGV, Task> kvp in GlobalParas.UnAllocableMatch)
-        //                {
-        //                    matchDic.Add(kvp.Key, kvp.Value);//进行深拷贝
-        //                }
-        //            }
-        //            double minTime = getMinMatch(matchList, ref minMatch);
-        //        }
-        //        else//Task<RGV，会有空闲的小车，此时需要进行（多选少），再进行全排列
-        //        {
-        //            //所有任务都要分配
-        //            foreach (Task t in GlobalParas.allocableTasks)
-        //            {
-        //                trueTasks.Add(t);
-        //            }
-        //            List<RGV[]> carLists = MathTool<RGV>.GetCombination(GlobalParas.allocableRGVs.ToArray(), trueTasks.Count);
-
-        //            double minTime = GlobalParas.INFINITY;
-        //            foreach (RGV[] carList in carLists)
-        //            {
-        //                List<Dictionary<RGV, Task>> aMatchList = new List<Dictionary<RGV, Task>>();
-        //                getMatchList(ref aMatchList, carList, trueTasks, 0, carList.Length);
-        //                //matchList的每一项都应该包括unAllocableMatch
-        //                foreach (Dictionary<RGV, Task> matchDic in aMatchList)
-        //                {
-        //                    foreach (KeyValuePair<RGV, Task> kvp in GlobalParas.UnAllocableMatch)
-        //                    {
-        //                        matchDic.Add(kvp.Key, kvp.Value);//进行深拷贝
-        //                    }
-        //                }
-        //                //计算matchList中的最小匹配minMatch
-        //                Dictionary<RGV, Task> aMinMatch = new Dictionary<RGV, Task>();
-        //                double aMinTime = getMinMatch(aMatchList, ref aMinMatch);
-        //                //aMinTime只是局部最小，还要比较多个matchList的最小值
-        //                if (aMinTime < minTime)
-        //                {
-        //                    minTime = aMinTime;
-        //                    minMatch = aMinMatch;
-        //                }
-        //            }
-        //        }
-        //        //给各个小车分发任务
-        //        DistributeTasks(minMatch);
-        //    }
-        //}
         public void InitialParas()
         {
-            trueRGVs = new List<RGV>();
-            trueTasks = new List<Task>();
             dispatchResult = new DispatchResult();
         }
-        public bool TrailerNotEmpty()
+        public bool TaskRGVNotEmpty()
         {
             return GlobalParas.allocableTasks.Count > 0 && GlobalParas.allocableRGVs.Count > 0;
         }
-        #region //计算x个车和x个任务的所有排列
-        public static void getMatchList(ref List<Dictionary<RGV, Task>> matchList, RGV[] carList, List<Task> taskList, int begin, int end)
+        //计算出所有Task和RGV匹配的组合，允许相邻任务都是一个RGV调度
+        public static void getDispatchList(ref List<Dictionary<Task, RGV>> matchList, RGV[] RGVs, Task[] tasks, int RGVNum, int taskNum)
         {
-            if (begin == end)
+            int i, j;
+            for (i = RGVNum; i >= 0; i--)
             {
-                //添加一个匹配
-                Dictionary<RGV, Task> match = new Dictionary<RGV, Task>();
-                for (int i = 0; i < carList.Length; i++)
-                {
-                    match.Add(carList[i], taskList[i]);
-                }
-                matchList.Add(match);
-            }
-            for (int i = begin; i < end; i++)
-            {
-                if (IsSwap(taskList, begin, i))
-                {
-                    Swap(taskList, begin, i);
-                    getMatchList(ref matchList, carList, taskList, begin + 1, end);
-                    Swap(taskList, begin, i);
-                }
-            }
-        }
-        //判断是否重复,重复的话要交换
-        public static bool IsSwap(List<Task> tasks, int nBegin, int nEnd)
-        {
-            for (int i = nBegin; i < nEnd; i++)
-                if (tasks[i] == tasks[nEnd])
-                    return false;
-            return true;
-        }
-        //交换数组中指定元素
-        static void Swap(List<Task> tasks, int x, int y)
-        {
-            Task t = tasks[x];
-            tasks[x] = tasks[y];
-            tasks[y] = t;
-        }
-        #endregion
-
-        #region //n中取出m个的全部组合
-        public List<List<RGV>> GetCombination(RGV[] cars, int m)
-        {
-            if (cars.Length < m)
-            {
-                return null;
-            }
-            int[] temp = new int[m];
-            List<RGV[]> carLists = new List<RGV[]>();
-            GetCombination(ref carLists, cars, cars.Length, m, temp, m);
-            //转换格式
-            List<List<RGV>> carLists1 = new List<List<RGV>>();
-            for (int i = 0; i < carLists.Count; i++)
-            {
-                carLists1.Add(carLists[i].ToList());
-            }
-            return carLists1;
-        }
-        private void GetCombination(ref List<RGV[]> carLists, RGV[] cars, int n, int m, int[] b, int M)
-        {
-            for (int i = n; i >= m; i--)
-            {
-                b[m - 1] = i - 1;
-                if (m > 1)
-                {
-                    GetCombination(ref carLists, cars, i - 1, m - 1, b, M);
-                }
+                tempRGVs[taskNum] = RGVs[i];
+                if (taskNum > 0)
+                    getDispatchList(ref matchList, RGVs, tasks, RGVNum, taskNum - 1);
                 else
                 {
-                    if (carLists == null)
+                    Dictionary<Task, RGV> tempMatch = new Dictionary<Task, RGV>();
+                    for (j = GlobalParas.allocableTasks.Count - 1; j >= 0; j--)
                     {
-                        carLists = new List<RGV[]>();
+                        tempMatch.Add(tasks[GlobalParas.allocableTasks.Count - 1 - j], tempRGVs[j]);
                     }
-                    RGV[] temp = new RGV[M];
-                    for (int j = 0; j < b.Length; j++)
-                    {
-                        temp[j] = cars[b[j]];
-                    }
-                    carLists.Add(temp);
+                    matchList.Add(tempMatch);
                 }
-            }
-        }
-        #endregion
-
-        //计算一个匹配组合完成所有任务的时间
-        public static double calcuTasksTime(Dictionary<RGV, Task> match)
-        {
-            double completeTime = 0.0f;
-            double unFinishNum = match.Count;
-            RMCList = new RGVMoveController[match.Count];//每次更新RMCList
-            int i = 0;
-            foreach (KeyValuePair<RGV, Task> kvp in match)
-            {
-                RMCList[i] = new RGVMoveController(kvp.Key, kvp.Value, GlobalParas.moveSpeed, GlobalParas.safeDis);
-                i++;
-            }
-            while (true)
-            {
-                foreach (RGVMoveController scc in RMCList)
-                {
-                    if (unFinishNum <= 0)
-                    {
-                        return completeTime;
-                    }
-                    if (scc.task == null)
-                    {
-                        unFinishNum--;
-                    }
-                    scc.SimuUpdate();
-                }
-                completeTime += GlobalParas.frameTime;
             }
         }
         //得到matchList中的时间最小Match, 返回最小match对应的时间, count是每个match的车或任务的数目
-        public static double getMinMatch(List<Dictionary<RGV, Task>> matchList, ref Dictionary<RGV, Task> minMatch)
+        public static double getMinMatch(List<Dictionary<Task, RGV>> matchList, ref Dictionary<Task, RGV> minMatch)
         {
             double[] times = new double[matchList.Count];//任务所需时间
             int index = 0;
             double minTime = GlobalParas.INFINITY;//最短时间
             minMatch = matchList[0];//最短时间的匹配
-            foreach (Dictionary<RGV, Task> match in matchList)
+            foreach (Dictionary<Task, RGV> match in matchList)
             {
                 //进行深拷贝,因为minMatch是实际的car、task状态，不能在RGVMoveController中更改
-                Dictionary<RGV, Task> tempMatch = new Dictionary<RGV, Task>();
-                foreach (RGV rgv in match.Keys)
+                Dictionary<Task, RGV> tempMatch = new Dictionary<Task, RGV>();
+                foreach (Task task in match.Keys)
                 {
-                    RGV rgvCopy = rgv.Clone();
-                    Task task = match[rgv].Clone();
-                    tempMatch.Add(rgv, task);
+                    Task taskCopy = task.Clone();
+                    RGV rgv = match[task].Clone();
+                    tempMatch.Add(taskCopy, rgv);
                 }
-                times[index] = calcuTasksTime(tempMatch);//求所有小车完成所有任务的时间
+                times[index] = calcuTasksTime(tempMatch);//求所有RGV完成所有任务的时间
                 if (times[index] < minTime)
                 {
                     minTime = times[index];
@@ -313,6 +94,91 @@ namespace RGVSimulation.Controller
                 index++;
             }
             return minTime;
+        }
+        //计算一个匹配组合完成所有任务的时间
+        public static double calcuTasksTime(Dictionary<Task, RGV> match)
+        {
+            double completeTime = 0.0f;
+            double aCompleteTime = 0.0f;
+            unfinishNum = match.Count;
+            int curIndex = 0;
+            bool aDispatchFin = true;
+            while (unfinishNum > 0)
+            {
+                bool sameRGV = false;
+                //一波结束，分配一波新的任务
+                if (aDispatchFin == true)
+                {
+                    //初始化RMCList
+                    RMCList = new RGVMoveController[GlobalParas.allocableRGVs.Count];
+                    int i = 0;
+                    foreach (RGV rgv in GlobalParas.allocableRGVs)
+                    {
+                        RMCList[i++] = new RGVMoveController(null, rgv, GlobalParas.moveSpeed, GlobalParas.safeDis);
+                    }
+                    //给每个RGV分配任务
+                    int j = 0;
+                    while (j < GlobalParas.allocableRGVs.Count && curIndex < match.Count)
+                    {
+                        //判断是否是重复的RGV
+                        for (int RMCIndex = 0; RMCIndex < RMCList.Length; RMCIndex++)
+                        {
+                            if (RMCList[RMCIndex].task!=null && RMCList[RMCIndex].RGV.ID == match.ElementAt(curIndex).Value.ID)
+                            {
+                                sameRGV = true;
+                            }
+                        }
+                        //如果有相同的RGV，直接退出循环
+                        if (!sameRGV)//分配
+                        {
+                            Task curTask = match.ElementAt(curIndex).Key;
+                            RGV curRGV = match.ElementAt(curIndex).Value;
+                            RMCList[j++] = new RGVMoveController(curTask, curRGV, GlobalParas.moveSpeed, GlobalParas.safeDis);
+                            curIndex++;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    aDispatchFin = false;
+                }
+                //计算一波任务的总时间
+                int aUnfinishNum = RMCList.Length;
+                while (aUnfinishNum > 0)
+                {
+                    for (int RMCindex = 0; RMCindex < RMCList.Length; RMCindex++)
+                    {
+                        if (aUnfinishNum <= 0)
+                        {
+                            break;
+                        }
+                        if (RMCList[RMCindex].task == null)
+                        {
+                            aUnfinishNum--;
+                        }
+                        RMCList[RMCindex].SimuUpdate();
+                    }
+                    aCompleteTime += GlobalParas.frameTime;
+                }
+                completeTime += aCompleteTime;
+            }
+            return completeTime;
+            //目前先无视已经分配了任务的RGV
+            //现在产生的Match不是一次模拟计算完成的，而是有多次计算，因为调度的任务数目比RGV多
+            //一次计算需要考虑没有任务的RGV，因为它们也会运动(因为防碰撞）
+            //更新matchList的时机：每次有新任务加入时
+            //从match中取任务到RMCList中
+        }
+        //根据RGV的ID返回全局变量allRGVs的RGV
+        public RGV getRGV(int ID)
+        {
+            foreach (RGV rgv in GlobalParas.allRGVs)
+            {
+                if (rgv.ID == ID)
+                    return rgv;
+            }
+            return null;
         }
     }
 }
