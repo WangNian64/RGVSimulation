@@ -4,6 +4,16 @@ using System.Text;
 using RGVSimulation.Trailer;
 namespace RGVSimulation.Varibles
 {
+    public struct DispatchResult
+    {
+        public Dictionary<Task, RGV> minMatch;
+        public double minTime;
+    }
+    public struct TaskRGVPair
+    {
+        public List<Task> tasks;
+        public List<RGV> RGVs;
+    }
     public class GlobalParas
     {
         public static double INFINITY = Double.MaxValue;

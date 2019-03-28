@@ -33,7 +33,11 @@ namespace RGVSimulation.Varibles
             return "ID:" + ID + ", pos:" + pos + ", workState:" + workState
                 + ", speed:" + speed;
         }
-
+        public override bool Equals(object obj)
+        {
+            RGV rgv = obj as RGV;
+            return rgv.ID == this.ID;
+        }
         public RGV Clone()
         {
             if (this == null)

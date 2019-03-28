@@ -6,8 +6,8 @@ namespace RGVSimulation.Tools
 {
     public class MathTool<T>
     {
-        public static double Rad2Deg = Math.PI / 180.0;
-        public static double Deg2Rad = 180.0 / Math.PI;
+        public static double Rad2Deg = 180.0 / Math.PI;
+        public static double Deg2Rad = Math.PI / 180.0;
         #region //排列组合算法
         /// <summary>
         /// 交换两个变量
@@ -60,7 +60,7 @@ namespace RGVSimulation.Tools
         /// <param name="t">所求数组</param>
         /// <param name="startIndex">起始标号</param>
         /// <param name="endIndex">结束标号</param>
-        private static void GetPermutation(ref List<T[]> list, T[] t, int startIndex, int endIndex)
+        public static void GetPermutation(ref List<T[]> list, T[] t, int startIndex, int endIndex)
         {
             if (startIndex == endIndex)
             {
@@ -74,7 +74,7 @@ namespace RGVSimulation.Tools
             }
             else
             {
-                for (int i = startIndex; i <= endIndex; i++)
+                for (int i = startIndex; i < endIndex; i++)
                 {
                     Swap(ref t[startIndex], ref t[i]);
                     GetPermutation(ref list, t, startIndex + 1, endIndex);

@@ -6,8 +6,8 @@ namespace RGVSimulation.Controller
 {
     public class RGVMoveController
     {
-        public RGV RGV;//车的信息
         public Task task;//车对应的任务
+        public RGV RGV;//车的信息
 
         public double moveSpeed;//运动时的速度
         public double safeDis;//小车之间的安全距离
@@ -20,8 +20,8 @@ namespace RGVSimulation.Controller
         public RGVMoveController(Task task, RGV RGV, double moveSpeed,
             double safeDis)
         {
-            this.RGV = RGV;
             this.task = task;
+            this.RGV = RGV;
             this.moveSpeed = moveSpeed;
             this.safeDis = safeDis;
             loadAccumuTime = unloadAccumuTime = 0;
@@ -113,7 +113,8 @@ namespace RGVSimulation.Controller
             shortPath = GlobalParas.trailerGraph.shortPathsMap[RGV.edge.vertex1.index,
                 task.loadEdge.vertex1.index];
             //若小车已经在最后一条边上
-            if (RGV.edge.vertex1.index == task.loadEdge.vertex1.index)
+            if (RGV.edge.vertex1.index == task.loadEdge.vertex1.index 
+                && RGV.edge.vertex2.index == task.loadEdge.vertex2.index)
             {
                 //判断是否已经到达取货点
                 if (RGV.pos == task.loadPos)
@@ -142,7 +143,8 @@ namespace RGVSimulation.Controller
             shortPath = GlobalParas.trailerGraph.shortPathsMap[RGV.edge.vertex1.index,
                 task.unloadEdge.vertex1.index];
             //若小车已经在最后一条边上
-            if (RGV.edge.vertex1.index == task.unloadEdge.vertex1.index)
+            if (RGV.edge.vertex1.index == task.unloadEdge.vertex1.index &&
+                RGV.edge.vertex2.index == task.unloadEdge.vertex2.index)
             {
                 //判断是否已经到达卸货点
                 if (RGV.pos == task.unloadPos)
@@ -185,6 +187,7 @@ namespace RGVSimulation.Controller
             {
                 RGV.pos = vertex.pos;
                 shortPath = GlobalParas.trailerGraph.shortPathsMap[vertex.index, shortPath.vertexList[shortPath.vertexList.Count - 1].index];
+                //更新最短路径
                 if (RGV.workState == WorkState.WayToLoad && vertex.index == task.loadEdge.vertex1.index)
                 {
                     RGV.edge = GlobalParas.trailerGraph.adjMatrix[vertex.index, task.loadEdge.vertex2.index];
@@ -197,10 +200,13 @@ namespace RGVSimulation.Controller
                 {
                     RGV.edge = GlobalParas.trailerGraph.adjMatrix[shortPath.vertexList[0].index, shortPath.vertexList[1].index];
                 }
-
+                //更新angled角度，注意曲线和直线的区别
                 if (RGV.edge is CurveEdge)
                 {
                     RGV.angled = (RGV.edge as CurveEdge).startDeg;
+                } else
+                {
+                    RGV.angled = 0;
                 }
                 return;
             }
@@ -254,7 +260,8 @@ namespace RGVSimulation.Controller
                 speedChangeable = true;
                 RGV.speed = 0.0f;
                 task = null;//清空任务
-                MainDispatcher.unfinishNum--;//总任务数目-1
+                MainDispatcher.unfinishTaskNum--;//总任务数目-1
+                MainDispatcher.aUnfinishTaskNum--;
                 shortPath = null;
                 unloadAccumuTime = 0;
             }
@@ -289,14 +296,14 @@ namespace RGVSimulation.Controller
             bool noOther = true;
             if (MainDispatcher.RMCList != null)
             {
-                foreach (RGVMoveController scc in MainDispatcher.RMCList)
+                foreach (RGVMoveController RMC in MainDispatcher.RMCList)
                 {
-                    if (scc.RGV.ID != RGV.ID)//是其他小车
+                    if (RMC.RGV.ID != RGV.ID)//是其他小车
                     {
                         noOther = false;
-                        if (Vector2.Distance(scc.RGV.pos, RGV.pos) <= safeDis)//若其他小车距离本车过近,修改速度
+                        if (Vector2.Distance(RMC.RGV.pos, RGV.pos) <= safeDis)//若其他小车距离本车过近,修改其他小车的速度
                         {
-                            SimuChangeSpeed(scc.RGV);//修改小车速度
+                            SimuChangeSpeed(RMC);//修改小车速度
                         }
                     }
                 }
@@ -351,12 +358,12 @@ namespace RGVSimulation.Controller
             //}
         }
         //模拟在碰撞时修改小车速度
-        public void SimuChangeSpeed(RGV targetRGV)
+        public void SimuChangeSpeed(RGVMoveController targetRMC)
         {
             if (speedChangeable)
             {
-                bool isfront = isFront(targetRGV);
-                if (isfront)
+                bool isfront = isFront(targetRMC.RGV);
+                if (isfront)//本车在前面
                 {
                     if (shortPath == null)//只有可能在empty时发生，此时前车需要先获得路径
                     {
@@ -365,10 +372,13 @@ namespace RGVSimulation.Controller
                     }
                     RGV.speed = moveSpeed;
                 }
-                else
+                else//本车在后面
                 {
-                    RGV.speed = targetRGV.speed;
-                    speedChangeable = false;
+                    if (targetRMC.speedChangeable == false)
+                    {
+                        RGV.speed = targetRMC.RGV.speed;
+                        speedChangeable = false;
+                    }
                 }
             }
         }

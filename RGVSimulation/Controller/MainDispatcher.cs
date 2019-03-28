@@ -6,33 +6,35 @@ using RGVSimulation.Varibles;
 using RGVSimulation.Tools;
 namespace RGVSimulation.Controller
 {
-    public struct DispatchResult
-    {
-        public Dictionary<Task, RGV> minMatch;
-        public double minTime;
-    }
     public class MainDispatcher
     {
         static RGV[] tempRGVs = new RGV[100];//辅助计算排列组合
         public static RGVMoveController[] RMCList;
         DispatchResult dispatchResult;
 
-        public static int unfinishNum;
+        public static int unfinishTaskNum;//未完成的任务数目
+        public static int aUnfinishTaskNum;//一次分配未完成的任务数目
         public DispatchResult DispatchRGV()
         {
             InitialParas();
             if (TaskRGVNotEmpty())
             {
-                //排列组合算法失效了，现在的数目是RGV^Task
+                //先得到Task的全排列
+                List<Task[]> taskPermuList = new List<Task[]>();
+                MathTool<Task>.GetPermutation(ref taskPermuList, GlobalParas.allocableTasks.ToArray(), 0, GlobalParas.allocableTasks.ToArray().Length);
+
                 List<Dictionary<Task, RGV>> dispatchList = new List<Dictionary<Task, RGV>>();
-                getDispatchList(ref dispatchList, GlobalParas.allocableRGVs.ToArray(), GlobalParas.allocableTasks.ToArray(),
-                    GlobalParas.allocableRGVs.Count - 1, GlobalParas.allocableTasks.Count - 1);
-                foreach (Dictionary<Task, RGV> matchDic in dispatchList)
+                foreach (Task[] tasks in taskPermuList)
                 {
-                    //对于已经分配了任务的RGV也要加进match
+                    getDispatchList(ref dispatchList, GlobalParas.allocableRGVs.ToArray(), tasks,
+                    GlobalParas.allocableRGVs.Count - 1, tasks.Length - 1);
+                }
+                //对于已经分配了任务的RGV也要加进match(这里加的时机不对，因为任务是有先后级别的，后加不一定对)
+                foreach (Dictionary<Task, RGV> match in dispatchList)
+                {
                     foreach (KeyValuePair<Task, RGV> kvp in GlobalParas.UnAllocableMatch)
                     {
-                        matchDic.Add(kvp.Key, kvp.Value);//进行深拷贝
+                        match.Add(kvp.Key.Clone(), kvp.Value.Clone());//进行深拷贝
                     }
                 }
                 //计算最佳match和最短时间
@@ -49,7 +51,7 @@ namespace RGVSimulation.Controller
             return GlobalParas.allocableTasks.Count > 0 && GlobalParas.allocableRGVs.Count > 0;
         }
         //计算出所有Task和RGV匹配的组合，允许相邻任务都是一个RGV调度
-        public static void getDispatchList(ref List<Dictionary<Task, RGV>> matchList, RGV[] RGVs, Task[] tasks, int RGVNum, int taskNum)
+        public void getDispatchList(ref List<Dictionary<Task, RGV>> matchList, RGV[] RGVs, Task[] tasks, int RGVNum, int taskNum)
         {
             int i, j;
             for (i = RGVNum; i >= 0; i--)
@@ -60,16 +62,16 @@ namespace RGVSimulation.Controller
                 else
                 {
                     Dictionary<Task, RGV> tempMatch = new Dictionary<Task, RGV>();
-                    for (j = GlobalParas.allocableTasks.Count - 1; j >= 0; j--)
+                    for (j = tasks.Length - 1; j >= 0; j--)
                     {
-                        tempMatch.Add(tasks[GlobalParas.allocableTasks.Count - 1 - j], tempRGVs[j]);
+                        tempMatch.Add(tasks[tasks.Length - 1 - j], tempRGVs[j]);
                     }
                     matchList.Add(tempMatch);
                 }
             }
         }
         //得到matchList中的时间最小Match, 返回最小match对应的时间, count是每个match的车或任务的数目
-        public static double getMinMatch(List<Dictionary<Task, RGV>> matchList, ref Dictionary<Task, RGV> minMatch)
+        public double getMinMatch(List<Dictionary<Task, RGV>> matchList, ref Dictionary<Task, RGV> minMatch)
         {
             double[] times = new double[matchList.Count];//任务所需时间
             int index = 0;
@@ -77,15 +79,16 @@ namespace RGVSimulation.Controller
             minMatch = matchList[0];//最短时间的匹配
             foreach (Dictionary<Task, RGV> match in matchList)
             {
-                //进行深拷贝,因为minMatch是实际的car、task状态，不能在RGVMoveController中更改
-                Dictionary<Task, RGV> tempMatch = new Dictionary<Task, RGV>();
+                //对match进行Clone
+                Dictionary<Task, RGV> matchDeepCopy = new Dictionary<Task, RGV>();
                 foreach (Task task in match.Keys)
                 {
                     Task taskCopy = task.Clone();
                     RGV rgv = match[task].Clone();
-                    tempMatch.Add(taskCopy, rgv);
+                    matchDeepCopy.Add(taskCopy, rgv);
                 }
-                times[index] = calcuTasksTime(tempMatch);//求所有RGV完成所有任务的时间
+                //由于Clone函数，导致后面的相同RGV有不同的状态
+                times[index] = calcuTasksTime(matchDeepCopy);//求所有RGV完成所有任务的时间
                 if (times[index] < minTime)
                 {
                     minTime = times[index];
@@ -96,29 +99,39 @@ namespace RGVSimulation.Controller
             return minTime;
         }
         //计算一个匹配组合完成所有任务的时间
-        public static double calcuTasksTime(Dictionary<Task, RGV> match)
+        public double calcuTasksTime(Dictionary<Task, RGV> match)
         {
             double completeTime = 0.0f;
             double aCompleteTime = 0.0f;
-            unfinishNum = match.Count;
+            unfinishTaskNum = match.Count;
+            aUnfinishTaskNum = 0;
             int curIndex = 0;
             bool aDispatchFin = true;
-            while (unfinishNum > 0)
+
+            int count1 = 0;
+            //对alloRGV进行深拷贝
+            List<RGV> alloRGVsDeepCopy = new List<RGV>();
+            foreach (RGV rgv in GlobalParas.allocableRGVs)
+            {
+                alloRGVsDeepCopy.Add(rgv.Clone());
+            }
+            while (unfinishTaskNum > 0)
             {
                 bool sameRGV = false;
                 //一波结束，分配一波新的任务
                 if (aDispatchFin == true)
                 {
                     //初始化RMCList
-                    RMCList = new RGVMoveController[GlobalParas.allocableRGVs.Count];
+                    RMCList = new RGVMoveController[alloRGVsDeepCopy.Count];
                     int i = 0;
-                    foreach (RGV rgv in GlobalParas.allocableRGVs)
+                    //这里的RGV其实应该是AllRGVs！先不考虑
+                    foreach (RGV rgv in alloRGVsDeepCopy)//调度所有的RGV，即使有些没有被分配任务
                     {
                         RMCList[i++] = new RGVMoveController(null, rgv, GlobalParas.moveSpeed, GlobalParas.safeDis);
                     }
                     //给每个RGV分配任务
-                    int j = 0;
-                    while (j < GlobalParas.allocableRGVs.Count && curIndex < match.Count)
+                    int RGVIndex = 0;
+                    while (RGVIndex < alloRGVsDeepCopy.Count && curIndex < match.Count)
                     {
                         //判断是否是重复的RGV
                         for (int RMCIndex = 0; RMCIndex < RMCList.Length; RMCIndex++)
@@ -128,15 +141,23 @@ namespace RGVSimulation.Controller
                                 sameRGV = true;
                             }
                         }
-                        //如果有相同的RGV，直接退出循环
-                        if (!sameRGV)//分配
+                        //分配
+                        if (!sameRGV)
                         {
                             Task curTask = match.ElementAt(curIndex).Key;
                             RGV curRGV = match.ElementAt(curIndex).Value;
-                            RMCList[j++] = new RGVMoveController(curTask, curRGV, GlobalParas.moveSpeed, GlobalParas.safeDis);
+                            foreach (RGVMoveController RMC in RMCList)
+                            {
+                                if (RMC.RGV.ID == curRGV.ID)
+                                {
+                                    RMC.task = curTask;
+                                }
+                            }
+                            RGVIndex++;
                             curIndex++;
+                            aUnfinishTaskNum++;
                         }
-                        else
+                        else//如果有相同的RGV，直接退出循环（一个RGV同时只能调度一个任务）
                         {
                             break;
                         }
@@ -144,24 +165,21 @@ namespace RGVSimulation.Controller
                     aDispatchFin = false;
                 }
                 //计算一波任务的总时间
-                int aUnfinishNum = RMCList.Length;
-                while (aUnfinishNum > 0)
+                while (aUnfinishTaskNum > 0)
                 {
                     for (int RMCindex = 0; RMCindex < RMCList.Length; RMCindex++)
                     {
-                        if (aUnfinishNum <= 0)
+                        RMCList[RMCindex].SimuUpdate();
+                        if (aUnfinishTaskNum <= 0)
                         {
+                            aDispatchFin = true;
                             break;
                         }
-                        if (RMCList[RMCindex].task == null)
-                        {
-                            aUnfinishNum--;
-                        }
-                        RMCList[RMCindex].SimuUpdate();
                     }
                     aCompleteTime += GlobalParas.frameTime;
                 }
                 completeTime += aCompleteTime;
+                aCompleteTime = 0.0f;
             }
             return completeTime;
             //目前先无视已经分配了任务的RGV
@@ -170,10 +188,9 @@ namespace RGVSimulation.Controller
             //更新matchList的时机：每次有新任务加入时
             //从match中取任务到RMCList中
         }
-        //根据RGV的ID返回全局变量allRGVs的RGV
         public RGV getRGV(int ID)
         {
-            foreach (RGV rgv in GlobalParas.allRGVs)
+            foreach (RGV rgv in GlobalParas.allocableRGVs)
             {
                 if (rgv.ID == ID)
                     return rgv;

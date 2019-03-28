@@ -85,7 +85,7 @@ namespace RGVSimulation.Tools
         public static bool IsClose(Vector2 v1, Vector2 v2, double speed)
         {
             double dist = Vector2.Distance(v1, v2);
-            return dist <= speed * GlobalParas.frameTime;
+            return dist <= speed * GlobalParas.frameTime * 10;
         }
         public override string ToString()
         {
